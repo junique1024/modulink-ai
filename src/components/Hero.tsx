@@ -18,18 +18,10 @@ export default function Hero({ onTry, onStart }: { onTry: () => void; onStart: (
         <p className="hero-note">로그인 없이 바로 사용 · 입력한 내용은 이 브라우저에만 저장됩니다</p>
       </div>
 
-      <div className="hero-art" aria-hidden>
-        <svg viewBox="0 0 360 260" className="robot">
-          <rect x="40" y="168" width="280" height="56" rx="16" className="m-base" />
-          <circle cx="90" cy="232" r="14" className="m-wheel" /><circle cx="270" cy="232" r="14" className="m-wheel" />
-          <rect x="70" y="120" width="70" height="48" rx="10" className="m-sensor" />
-          <circle cx="105" cy="144" r="10" className="m-lens" />
-          <rect x="190" y="70" width="26" height="100" rx="10" className="m-arm" />
-          <rect x="196" y="60" width="96" height="22" rx="11" className="m-arm" transform="rotate(-24 203 72)" />
-          <circle cx="203" cy="118" r="13" className="m-joint" /><circle cx="203" cy="72" r="11" className="m-joint" />
-          <path d="M280 30 l14 -8 M280 30 l14 8" className="m-grip" />
-        </svg>
-        <div className="tags">
+      <div className="hero-art">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 정적 이미지 1장, 최적화 서버 없이도 동작하도록 */}
+        <img src="/modulink-robot.webp" width={900} height={909} alt="자율주행 베이스 위에 협동 로봇팔을 결합한 ModuLink 모듈형 로봇" className="robot" fetchPriority="high" />
+        <div className="tags" aria-hidden>
           <span className="t1">주행 베이스</span><span className="t2">로봇팔</span><span className="t3">검사 센서</span>
         </div>
       </div>
