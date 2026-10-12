@@ -50,6 +50,8 @@ Supabase 테이블은 `supabase/migrations/001_init.sql` 을 SQL Editor에서 �
 src/
 ├─ app/                          # 화면 (page.tsx, layout.tsx, globals.css)
 ├─ components/
+│  ├─ Sidebar.tsx               # 좌측 목차 (모바일: 상단 가로 메뉴), 현재 섹션 강조
+│  ├─ Hero.tsx                  # 첫 화면 (한 줄 소개 · 예시 체험 버튼)
 │  ├─ Workspace.tsx              # 화면 전체 상태 · 저장 방식(DB/브라우저) 자동 전환
 │  ├─ Planner.tsx                # 말로 요청 · 조건 입력 · 추천 결과 · 체크리스트
 │  ├─ AnalysisOverlay.tsx       # 계산 단계 표시 화면

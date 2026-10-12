@@ -12,13 +12,6 @@ export default async function Home() {
   const dbReady = configured && !error;
 
   return (
-    <main className="wrap">
-      <Workspace modules={modules} initialRecords={records} dbReady={dbReady} catalogLabel={`모듈 ${modules.length}개 (${source === "supabase" ? "DB" : "기본 카탈로그"})`} />
-
-      <footer>
-        ModuLink-AI 프로토타입 · 2026 기업가정신 챌린지 · 팀 신촌다이나믹스
-        <br />※ 모듈 사양과 가격은 시연용 예시 값입니다
-      </footer>
-    </main>
+    <Workspace modules={modules} initialRecords={records} dbReady={dbReady} catalogLabel={`모듈 ${modules.length}개 (${source === "supabase" ? "DB" : "기본 카탈로그"})`} />
   );
 }

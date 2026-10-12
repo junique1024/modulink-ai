@@ -5,7 +5,7 @@ import type { RecommendationRecord } from "@/features/recommendations/types";
 
 export default function HistoryList({ records, sourceLabel, onDelete }: { records: RecommendationRecord[]; sourceLabel: string; onDelete: (id: number) => void }) {
   return (
-    <section className="card history">
+    <section className="card history" id="history">
       <h2>3. 저장된 검토 기록</h2>
       <p className="desc">{sourceLabel}에 저장된 기록 {records.length}건</p>
       {records.length === 0 ? (

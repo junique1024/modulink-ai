@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { parseNatural } from "@/features/ai/actions";
 import { INSPECTION_TEXT, type ParsedField } from "@/features/ai/parse";
 import { buildChecklist } from "@/features/modules/checklist";
@@ -66,9 +66,10 @@ interface Props {
   onSave: (input: TaskInput) => Promise<void>;
   saving: boolean;
   savedKey: string | null; // 마지막으로 저장한 조건 (같은 결과 중복 저장 방지)
+  onResult?: () => void; // 첫 결과가 나오면 목차의 '추천 결과'를 활성화
 }
 
-export default function Planner({ modules, onSave, saving, savedKey }: Props) {
+export default function Planner({ modules, onSave, saving, savedKey, onResult }: Props) {
   const [input, setInput] = useState<TaskInput>(INITIAL);
   const [result, setResult] = useState<{ rec: Recommendation; input: TaskInput } | null>(null);
   const [nl, setNl] = useState("");
@@ -98,6 +99,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
   const showResult = (fixed: TaskInput) => {
     setResult({ rec: recommend(fixed, modules), input: fixed });
     setStale(false);
+    onResult?.();
     setTimeout(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   };
 
@@ -171,13 +173,27 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
     }
   };
 
+  // 첫 화면의 '예시로 체험하기' 버튼 → 예시 문장 실행
+  const onNaturalRef = useRef(onNatural);
+  useEffect(() => { onNaturalRef.current = onNatural; });
+  useEffect(() => {
+    const h = (e: Event) => {
+      const ex = EXAMPLES[Number((e as CustomEvent).detail) || 0];
+      setNl(ex);
+      document.getElementById("ask")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      onNaturalRef.current(ex);
+    };
+    window.addEventListener("modulink:example", h);
+    return () => window.removeEventListener("modulink:example", h);
+  }, []);
+
   const ok = result?.rec.ok ? result.rec : null;
 
   return (
     <div>
       {analysis && <AnalysisOverlay steps={analysis.steps} done={analysis.done} onSkip={() => { skipRef.current = true; }} />}
       {/* 0. 말로 요청하기 */}
-      <section className="card">
+      <section className="card" id="ask">
         <h2>말로 요청하기</h2>
         <p className="desc">현장에서 하고 싶은 일을 평소 말투로 적으면, 조건을 채우고 바로 추천합니다.</p>
         <textarea className="nl" rows={3} maxLength={500} value={nl} aria-label="요청 문장"
@@ -214,7 +230,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
       </section>
 
       {/* 1. 작업 조건 확인·수정 */}
-      <section className="card">
+      <section className="card" id="conditions">
         <h2>1. 작업 조건 확인·수정</h2>
         <p className="desc">직접 입력하거나, 위에서 채워진 값을 고친 뒤 다시 추천받을 수 있습니다.</p>
         <form className="grid" onSubmit={(e) => { e.preventDefault(); if (!busy) runRecommend(input); }}>

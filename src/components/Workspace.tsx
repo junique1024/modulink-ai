@@ -5,7 +5,9 @@ import type { RobotModule, TaskInput } from "@/features/modules/types";
 import { removeRecommendation, saveRecommendation } from "@/features/recommendations/actions";
 import { toRecord, type RecommendationRecord } from "@/features/recommendations/types";
 import HistoryList from "./HistoryList";
+import Hero from "./Hero";
 import Planner from "./Planner";
+import Sidebar from "./Sidebar";
 
 const KEY = "modulink-ai.records.v1";
 const readBrowser = (): RecommendationRecord[] => {
@@ -35,6 +37,7 @@ export default function Workspace({ modules, initialRecords, dbReady, catalogLab
   const [records, setRecords] = useState<RecommendationRecord[]>(initialRecords);
   const [saving, setSaving] = useState(false);
   const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [hasResult, setHasResult] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,18 +94,25 @@ export default function Workspace({ modules, initialRecords, dbReady, catalogLab
     }
   };
 
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const storageLabel = useDb ? "DB 연결됨" : "기록: 이 브라우저에 저장";
+
   return (
-    <>
-      <header>
-        <div>
-          <h1>ModuLink-AI</h1>
-          <div className="tagline">말 한 줄로 로봇 모듈 조합 · 투자 회수 기간 · 안전 검토 항목까지</div>
-        </div>
-        <span className={`badge ${useDb ? "on" : "off"}`} title={catalogLabel}>● {useDb ? "DB 연결됨" : "기록: 이 브라우저에 저장"}</span>
-      </header>
-      <Planner modules={modules} onSave={onSave} saving={saving} savedKey={savedKey} />
-      <HistoryList records={records} onDelete={onDelete} sourceLabel={useDb ? "DB(Supabase)" : "이 브라우저"} />
+    <div className="shell">
+      <Sidebar hasResult={hasResult} storageLabel={storageLabel} catalogLabel={catalogLabel} useDb={useDb} />
+      <main className="wrap">
+        <Hero
+          onTry={() => window.dispatchEvent(new CustomEvent("modulink:example", { detail: 0 }))}
+          onStart={() => { scrollTo("ask"); setTimeout(() => document.querySelector<HTMLTextAreaElement>("textarea.nl")?.focus({ preventScroll: true }), 450); }}
+        />
+        <Planner modules={modules} onSave={onSave} saving={saving} savedKey={savedKey} onResult={() => setHasResult(true)} />
+        <HistoryList records={records} onDelete={onDelete} sourceLabel={useDb ? "DB(Supabase)" : "이 브라우저"} />
+        <footer>
+          ModuLink-AI 프로토타입 · 2026 기업가정신 챌린지 · 팀 신촌다이나믹스
+          <br />※ 모듈 사양과 가격은 시연용 예시 값입니다
+        </footer>
+      </main>
       <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>
-    </>
+    </div>
   );
 }
