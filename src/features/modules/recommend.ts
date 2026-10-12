@@ -71,3 +71,50 @@ export const wonShort = (man: number) => {
 export const formatPayback = (months: number | null) =>
   months === null ? "회수 불가" : months < 12 ? `${months.toFixed(1)}개월` : `${(months / 12).toFixed(1)}년 (${Math.round(months)}개월)`;
 export const INSPECTION_LABEL: Record<string, string> = { none: "검사 없음", basic: "기본 검사", precise: "정밀 검사" };
+
+/** 추천 과정 기록 (로딩 화면에 실제 계산 단계를 보여주기 위한 값) — recommend()와 같은 규칙으로 셈 */
+export interface AnalysisTrace {
+  total: number;
+  bases: number;
+  arms: number;
+  sensors: number;
+  armNeeded: boolean;
+  armCandidates: number;
+  combos: number;
+  rejectedCapacity: number;
+  rejectedMount: number;
+  feasible: number;
+}
+
+export function traceRecommend(input: TaskInput, modules: RobotModule[]): AnalysisTrace {
+  const bases = modules.filter((m) => m.category === "base");
+  const arms = modules.filter((m) => m.category === "arm");
+  const sensors = modules.filter((m) => m.category === "sensor");
+  const sensor =
+    input.inspection === "none"
+      ? null
+      : sensors.filter((s) => (s.level ?? "basic") === input.inspection).sort((a, b) => a.price - b.price)[0] ?? null;
+  const armCandidates: (RobotModule | null)[] =
+    input.pickKg > 0 ? arms.filter((a) => a.payload_kg >= input.pickKg * RULES.SAFETY_MARGIN) : [null];
+  let rejectedCapacity = 0, rejectedMount = 0, feasible = 0;
+  for (const arm of armCandidates) {
+    const requiredKg = (input.loadKg + (arm?.self_kg ?? 0) + (sensor?.self_kg ?? 0)) * RULES.SAFETY_MARGIN;
+    for (const base of bases) {
+      if (base.payload_kg < requiredKg) rejectedCapacity++;
+      else if (arm && !mounts(base).some((x) => mounts(arm).includes(x))) rejectedMount++;
+      else feasible++;
+    }
+  }
+  return {
+    total: modules.length,
+    bases: bases.length,
+    arms: arms.length,
+    sensors: sensors.length,
+    armNeeded: input.pickKg > 0,
+    armCandidates: input.pickKg > 0 ? armCandidates.length : 0,
+    combos: armCandidates.length * bases.length,
+    rejectedCapacity,
+    rejectedMount,
+    feasible,
+  };
+}

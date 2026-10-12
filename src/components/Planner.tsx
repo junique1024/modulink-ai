@@ -4,9 +4,19 @@ import { useRef, useState } from "react";
 import { parseNatural } from "@/features/ai/actions";
 import { INSPECTION_TEXT, type ParsedField } from "@/features/ai/parse";
 import { buildChecklist } from "@/features/modules/checklist";
-import { formatPayback, recommend, RULES, won } from "@/features/modules/recommend";
+import { formatPayback, recommend, RULES, traceRecommend, won } from "@/features/modules/recommend";
 import type { InspectionLevel, Recommendation, RobotModule, TaskInput } from "@/features/modules/types";
+import AnalysisOverlay, { type AnalysisStep } from "./AnalysisOverlay";
 import RoiChart from "./RoiChart";
+
+const STEP_MS = 330; // 단계당 표시 시간 (전체 약 2초)
+const sleep = (ms: number, skip: { current: boolean }) =>
+  new Promise<void>((resolve) => {
+    if (skip.current) return resolve();
+    const t0 = Date.now();
+    const tick = () => (skip.current || Date.now() - t0 >= ms ? resolve() : setTimeout(tick, 30));
+    tick();
+  });
 
 export const INITIAL: TaskInput = {
   taskName: "",
@@ -53,6 +63,9 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
   const [parsing, setParsing] = useState(false);
   const [stale, setStale] = useState(false);
   const reqId = useRef(0);
+  const [analysis, setAnalysis] = useState<{ steps: AnalysisStep[]; done: number } | null>(null);
+  const skipRef = useRef(false);
+  const busy = parsing || analysis !== null;
 
   const set = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) => {
     setInput((prev) => ({ ...prev, [key]: value }));
@@ -69,19 +82,49 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, Math.min(LIMIT[key], Math.max(0, Number(e.target.value) || 0))),
   });
 
-  const runRecommend = (next: TaskInput) => {
-    const fixed = { ...next, taskName: next.taskName.trim() || "이름 없는 작업" };
+  const showResult = (fixed: TaskInput) => {
     setResult({ rec: recommend(fixed, modules), input: fixed });
     setStale(false);
     setTimeout(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   };
 
+  /** 실제 계산 단계를 순서대로 보여준 뒤 결과 표시 */
+  const runRecommend = async (next: TaskInput, first: AnalysisStep = { label: "입력 조건 확인", detail: "작업 조건 7개 항목" }, my = ++reqId.current, fresh = true) => {
+    const fixed = { ...next, taskName: next.taskName.trim() || "이름 없는 작업" };
+    const t = traceRecommend(fixed, modules);
+    const steps: AnalysisStep[] = [
+      first,
+      { label: "모듈 카탈로그 탐색", detail: `모듈 ${t.total}개 (주행 베이스 ${t.bases} · 로봇팔 ${t.arms} · 검사 센서 ${t.sensors})` },
+      t.armNeeded
+        ? { label: "로봇팔 가반 하중 필터", detail: `집는 무게 ${fixed.pickKg}kg × 안전율 ${RULES.SAFETY_MARGIN} → 후보 ${t.armCandidates}개` }
+        : { label: "로봇팔 필요 여부 확인", detail: "집는 작업 없음 → 로봇팔 제외" },
+      {
+        label: "적재 용량 · 장착 규격 호환 검사",
+        detail: `조합 ${t.combos}개 검토 → 적재 초과 ${t.rejectedCapacity}개 · 규격 불일치 ${t.rejectedMount}개 탈락`,
+      },
+      { label: "최저 비용 조합 선택", detail: t.feasible > 0 ? `통과한 ${t.feasible}개 중 최저가 조합` : "조건을 만족하는 조합 없음" },
+      { label: "투자 회수 기간 · 안전 검토 항목 계산", detail: `대체율 ${fixed.replaceRate}% · 설치비 ${RULES.INTEGRATION_RATE * 100}% · 유지보수비 연 ${RULES.MAINTENANCE_RATE * 100}% 반영` },
+    ];
+    if (fresh) skipRef.current = false; // 문장 해석에서 이어질 땐 '건너뛰기' 상태 유지
+    for (let i = 1; i <= steps.length; i++) {
+      if (my !== reqId.current) return;
+      setAnalysis({ steps, done: i });
+      if (i < steps.length) await sleep(STEP_MS, skipRef);
+    }
+    await sleep(220, skipRef);
+    if (my !== reqId.current) return;
+    setAnalysis(null);
+    showResult(fixed);
+  };
+
   const onNatural = async (text = nl) => {
-    if (!text.trim() || parsing) return;
+    if (!text.trim() || busy) return;
     const my = ++reqId.current;
     setParsing(true);
+    skipRef.current = false;
+    setAnalysis({ steps: [{ label: "요청 문장 해석" }, { label: "모듈 카탈로그 탐색" }, { label: "로봇팔 가반 하중 필터" }, { label: "적재 용량 · 장착 규격 호환 검사" }, { label: "최저 비용 조합 선택" }, { label: "투자 회수 기간 · 안전 검토 항목 계산" }], done: 0 });
     try {
-      const r = await parseNatural(text);
+      const [r] = await Promise.all([parseNatural(text), sleep(STEP_MS, skipRef)]);
       if (my !== reqId.current) return; // 더 최근 요청이 있으면 무시
       // 매번 기본값에서 출발 → 이전 예시 값이 섞이지 않음
       const next: TaskInput = { ...INITIAL, ...r.patch };
@@ -92,8 +135,10 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
         defaults: missing.map((k) => FIELD_DEFAULT_TEXT[k](next)),
         engine: r.engine === "claude" ? "Claude AI 해석" : "규칙 기반 해석",
       });
-      runRecommend(next);
+      setParsing(false);
+      await runRecommend(next, { label: "요청 문장 해석", detail: `${r.engine === "claude" ? "Claude AI" : "규칙 기반"} · 조건 ${r.understood.length}개 인식${missing.length ? `, ${missing.length}개는 기본값` : ""}` }, my, false);
     } catch {
+      setAnalysis(null);
       setUnderstood({ items: [], defaults: [], engine: "해석 실패 — 아래 입력란에 직접 입력해 주세요" });
     } finally {
       if (my === reqId.current) setParsing(false);
@@ -104,6 +149,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
 
   return (
     <div>
+      {analysis && <AnalysisOverlay steps={analysis.steps} done={analysis.done} onSkip={() => { skipRef.current = true; }} />}
       {/* 0. 말로 요청하기 */}
       <section className="card">
         <h2>말로 요청하기</h2>
@@ -115,12 +161,12 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
         <div className="chips">
           <span className="chips-label">예시</span>
           {EXAMPLES.map((ex) => (
-            <button type="button" key={ex} className="chip" disabled={parsing} onClick={() => { setNl(ex); onNatural(ex); }}>{ex}</button>
+            <button type="button" key={ex} className="chip" disabled={busy} onClick={() => { setNl(ex); onNatural(ex); }}>{ex}</button>
           ))}
         </div>
         <div className="row-btns">
-          <button type="button" className="btn" disabled={parsing || !nl.trim()} onClick={() => onNatural()}>
-            {parsing ? "해석 중…" : "조건 채우고 추천받기"}
+          <button type="button" className="btn" disabled={busy || !nl.trim()} onClick={() => onNatural()}>
+            {busy ? "계산 중…" : "조건 채우고 추천받기"}
           </button>
         </div>
         {understood && (
@@ -145,7 +191,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
       <section className="card">
         <h2>1. 작업 조건 확인·수정</h2>
         <p className="desc">직접 입력하거나, 위에서 채워진 값을 고친 뒤 다시 추천받을 수 있습니다.</p>
-        <form className="grid" onSubmit={(e) => { e.preventDefault(); runRecommend(input); }}>
+        <form className="grid" onSubmit={(e) => { e.preventDefault(); if (!busy) runRecommend(input); }}>
           <div className="full">
             <label htmlFor="taskName">작업 이름</label>
             <input id="taskName" maxLength={80} value={input.taskName} placeholder="예) 2라인 완제품 이송 후 외관 검사"
@@ -170,7 +216,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
               onChange={(e) => set("replaceRate", Number(e.target.value))} />
           </div>
           <div className="full row-btns">
-            <button type="submit" className="btn">최적 조합 추천받기</button>
+            <button type="submit" className="btn" disabled={busy}>{analysis ? "계산 중…" : "최적 조합 추천받기"}</button>
           </div>
         </form>
       </section>
@@ -180,7 +226,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
         <section className="card result" id="result">
           <h2>2. 추천 결과</h2>
           {stale && (
-            <div className="stale">조건이 바뀌었어요. <button type="button" className="link" onClick={() => runRecommend(input)}>다시 계산하기</button></div>
+            <div className="stale">조건이 바뀌었어요. <button type="button" className="link" disabled={busy} onClick={() => runRecommend(input)}>다시 계산하기</button></div>
           )}
           {!ok ? (
             <p className="desc warn">{result.rec.ok ? "" : result.rec.reason}</p>
