@@ -9,7 +9,20 @@ import type { InspectionLevel, Recommendation, RobotModule, TaskInput } from "@/
 import AnalysisOverlay, { type AnalysisStep } from "./AnalysisOverlay";
 import RoiChart from "./RoiChart";
 
-const STEP_MS = 330; // 단계당 표시 시간 (전체 약 2초)
+/**
+ * 단계별 표시 시간 (매번 랜덤)
+ * - 전체 시간: 약 1~2.5초 사이에서 매번 다르게 → 항상 느리지 않음
+ * - 단계 비중: 조합 호환 검사처럼 무거운 단계는 길게, 검토 조합이 많을수록 조금 더 길게
+ * - 단계마다 ±30% 흔들림 → 매번 다른 리듬
+ */
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
+function planDurations(combos: number): number[] {
+  const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const total = reduce ? 800 : rand(1000, 2400);
+  const weights = [1.0, 0.6, 0.8, 1.6 + Math.min(combos, 20) * 0.1, 0.7, 1.1].map((w) => w * rand(0.7, 1.3));
+  const sum = weights.reduce((a, b) => a + b, 0);
+  return weights.map((w) => Math.round((w / sum) * total));
+}
 const sleep = (ms: number, skip: { current: boolean }) =>
   new Promise<void>((resolve) => {
     if (skip.current) return resolve();
@@ -89,7 +102,13 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
   };
 
   /** 실제 계산 단계를 순서대로 보여준 뒤 결과 표시 */
-  const runRecommend = async (next: TaskInput, first: AnalysisStep = { label: "입력 조건 확인", detail: "작업 조건 7개 항목" }, my = ++reqId.current, fresh = true) => {
+  const runRecommend = async (
+    next: TaskInput,
+    first: AnalysisStep = { label: "입력 조건 확인", detail: "작업 조건 7개 항목" },
+    my = ++reqId.current,
+    fresh = true,
+    plan?: number[],
+  ) => {
     const fixed = { ...next, taskName: next.taskName.trim() || "이름 없는 작업" };
     const t = traceRecommend(fixed, modules);
     const steps: AnalysisStep[] = [
@@ -106,12 +125,18 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
       { label: "투자 회수 기간 · 안전 검토 항목 계산", detail: `대체율 ${fixed.replaceRate}% · 설치비 ${RULES.INTEGRATION_RATE * 100}% · 유지보수비 연 ${RULES.MAINTENANCE_RATE * 100}% 반영` },
     ];
     if (fresh) skipRef.current = false; // 문장 해석에서 이어질 땐 '건너뛰기' 상태 유지
+    const ms = plan ?? planDurations(t.combos);
+    if (fresh) {
+      // 직접 입력: 첫 단계(조건 확인)도 잠깐 진행 표시
+      setAnalysis({ steps, done: 0 });
+      await sleep(ms[0], skipRef);
+    }
     for (let i = 1; i <= steps.length; i++) {
       if (my !== reqId.current) return;
       setAnalysis({ steps, done: i });
-      if (i < steps.length) await sleep(STEP_MS, skipRef);
+      if (i < steps.length) await sleep(ms[i], skipRef);
     }
-    await sleep(220, skipRef);
+    await sleep(150, skipRef);
     if (my !== reqId.current) return;
     setAnalysis(null);
     showResult(fixed);
@@ -124,7 +149,8 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
     skipRef.current = false;
     setAnalysis({ steps: [{ label: "요청 문장 해석" }, { label: "모듈 카탈로그 탐색" }, { label: "로봇팔 가반 하중 필터" }, { label: "적재 용량 · 장착 규격 호환 검사" }, { label: "최저 비용 조합 선택" }, { label: "투자 회수 기간 · 안전 검토 항목 계산" }], done: 0 });
     try {
-      const [r] = await Promise.all([parseNatural(text), sleep(STEP_MS, skipRef)]);
+      const plan = planDurations(6);
+      const [r] = await Promise.all([parseNatural(text), sleep(plan[0], skipRef)]);
       if (my !== reqId.current) return; // 더 최근 요청이 있으면 무시
       // 매번 기본값에서 출발 → 이전 예시 값이 섞이지 않음
       const next: TaskInput = { ...INITIAL, ...r.patch };
@@ -136,7 +162,7 @@ export default function Planner({ modules, onSave, saving, savedKey }: Props) {
         engine: r.engine === "claude" ? "Claude AI 해석" : "규칙 기반 해석",
       });
       setParsing(false);
-      await runRecommend(next, { label: "요청 문장 해석", detail: `${r.engine === "claude" ? "Claude AI" : "규칙 기반"} · 조건 ${r.understood.length}개 인식${missing.length ? `, ${missing.length}개는 기본값` : ""}` }, my, false);
+      await runRecommend(next, { label: "요청 문장 해석", detail: `${r.engine === "claude" ? "Claude AI" : "규칙 기반"} · 조건 ${r.understood.length}개 인식${missing.length ? `, ${missing.length}개는 기본값` : ""}` }, my, false, plan);
     } catch {
       setAnalysis(null);
       setUnderstood({ items: [], defaults: [], engine: "해석 실패 — 아래 입력란에 직접 입력해 주세요" });
