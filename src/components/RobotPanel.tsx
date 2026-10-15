@@ -29,7 +29,7 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<AlarmEvent[]>([]);
   const [trail, setTrail] = useState<number[]>([]);
-  const [threshold, setThreshold] = useState(250);
+  const [threshold, setThreshold] = useState(200);
   const [soundOn, setSoundOn] = useState(false);
   const [canSerial, setCanSerial] = useState(true);
 
@@ -251,7 +251,7 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
 
             <div className="alarm-log">
               <div className="g-title">경보 이력 {history.length > 0 && <span className="count">{history.length}</span>}</div>
-              {history.length === 0 ? <p className="desc">아직 경보가 없어요. 가변저항을 빠르게 돌려 보세요.</p> : (
+              {history.length === 0 ? <p className="desc">아직 경보가 없어요. 엔코더 손잡이를 빠르게 돌려 보세요.</p> : (
                 <ul>{history.map((h) => {
                   const d = new Date(h.at);
                   return <li key={h.at}><b>{`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`}</b> 과속 감지 · 최고 {h.peak}°/s (기준 {h.threshold}°/s) → 자동 정지 후 해제</li>;
@@ -260,7 +260,7 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
             </div>
           </>
         )}
-        <p className="disclaimer">※ 데모용 소형 로봇(아두이노 UNO · 서보모터)입니다. 속도 제한 기준은 안전 체크리스트의 &apos;협동 운전 조건(속도·힘 제한)&apos;을 시연하기 위한 값입니다.</p>
+        <p className="disclaimer">※ 데모용 소형 로봇(아두이노 UNO · 로터리 엔코더 · SG90 서보)입니다. 엔코더 버튼을 누르면 서보가 가운데(90°)로 돌아갑니다. 속도 제한 기준은 안전 체크리스트의 &apos;협동 운전 조건(속도·힘 제한)&apos;을 시연하기 위한 값입니다.</p>
       </section>
     </>
   );
