@@ -2,6 +2,15 @@
 
 import type { TabId } from "./Planner";
 
+const ICON: Record<TabId, string> = {
+  home: "M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
+  ask: "M4 5h16v11H9l-5 4z",
+  conditions: "M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6",
+  result: "M5 20V11M12 20V5M19 20v-7",
+  robot: "M7 9h10v9H7zM12 5v4M9 13h.01M15 13h.01M4 12v3M20 12v3",
+  history: "M12 7v5l3 2M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5",
+};
+
 export const NAV: { id: TabId; label: string; sub: string; narrowOnly?: boolean }[] = [
   { id: "home", label: "소개", sub: "서비스 한눈에" },
   { id: "ask", label: "말로 요청", sub: "문장 한 줄 입력" },
@@ -30,6 +39,7 @@ export default function Sidebar({ tab, onTab, hasResult, storageLabel, catalogLa
             <button key={n.id} type="button" role="tab" aria-selected={tab === n.id}
               className={`${tab === n.id ? "on" : ""} ${dim ? "dim" : ""} ${n.narrowOnly ? "narrow-only" : ""}`}
               onClick={() => onTab(n.id)}>
+              <svg className="ico" viewBox="0 0 24 24" aria-hidden><path d={ICON[n.id]} /></svg>
               <span className="num">{String(i + 1).padStart(2, "0")}</span>
               <span className="txt"><b>{n.label}{n.id === "history" && historyCount > 0 ? ` ${historyCount}` : ""}</b><small>{dim ? "추천 후 표시" : n.sub}</small></span>
             </button>
