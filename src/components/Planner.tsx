@@ -67,9 +67,13 @@ interface Props {
   saving: boolean;
   savedKey: string | null; // 마지막으로 저장한 조건 (같은 결과 중복 저장 방지)
   onResult?: () => void; // 첫 결과가 나오면 목차의 '추천 결과'를 활성화
+  tab: TabId;
+  onTab: (t: TabId) => void;
 }
 
-export default function Planner({ modules, onSave, saving, savedKey, onResult }: Props) {
+export type TabId = "home" | "ask" | "conditions" | "result" | "history";
+
+export default function Planner({ modules, onSave, saving, savedKey, onResult, tab, onTab }: Props) {
   const [input, setInput] = useState<TaskInput>(INITIAL);
   const [result, setResult] = useState<{ rec: Recommendation; input: TaskInput } | null>(null);
   const [nl, setNl] = useState("");
@@ -100,7 +104,7 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
     setResult({ rec: recommend(fixed, modules), input: fixed });
     setStale(false);
     onResult?.();
-    setTimeout(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    onTab("result");
   };
 
   /** 실제 계산 단계를 순서대로 보여준 뒤 결과 표시 */
@@ -175,17 +179,35 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
 
   // 첫 화면의 '예시로 체험하기' 버튼 → 예시 문장 실행
   const onNaturalRef = useRef(onNatural);
-  useEffect(() => { onNaturalRef.current = onNatural; });
+  const onTabRef = useRef(onTab);
+  const runRecommendRef = useRef(runRecommend);
+  useEffect(() => { onNaturalRef.current = onNatural; onTabRef.current = onTab; runRecommendRef.current = runRecommend; });
   useEffect(() => {
     const h = (e: Event) => {
       const ex = EXAMPLES[Number((e as CustomEvent).detail) || 0];
       setNl(ex);
-      document.getElementById("ask")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      onTabRef.current("ask");
       onNaturalRef.current(ex);
     };
+    // 우측 기록 카드 클릭 → 저장된 조건으로 다시 계산
+    const load = (e: Event) => {
+      const next = { ...INITIAL, ...(e as CustomEvent<TaskInput>).detail };
+      setInput(next);
+      runRecommendRef.current(next, { label: "저장된 검토 기록 불러오기", detail: next.taskName });
+    };
     window.addEventListener("modulink:example", h);
-    return () => window.removeEventListener("modulink:example", h);
+    window.addEventListener("modulink:load", load);
+    return () => { window.removeEventListener("modulink:example", h); window.removeEventListener("modulink:load", load); };
   }, []);
+
+  /** 결과 화면에서 대체율만 바로 바꿔 보기 (애니메이션 없이 즉시 재계산) */
+  const quickRate = (v: number) => {
+    if (!result) return;
+    const next = { ...result.input, replaceRate: v };
+    setInput((prev) => ({ ...prev, replaceRate: v }));
+    setResult({ rec: recommend(next, modules), input: next });
+    setStale(false);
+  };
 
   const ok = result?.rec.ok ? result.rec : null;
 
@@ -193,7 +215,7 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
     <div>
       {analysis && <AnalysisOverlay steps={analysis.steps} done={analysis.done} onSkip={() => { skipRef.current = true; }} />}
       {/* 0. 말로 요청하기 */}
-      <section className="card" id="ask">
+      <section className="card" id="ask" hidden={tab !== "ask"}>
         <h2>말로 요청하기</h2>
         <p className="desc">현장에서 하고 싶은 일을 평소 말투로 적으면, 조건을 채우고 바로 추천합니다.</p>
         <textarea className="nl" rows={3} maxLength={500} value={nl} aria-label="요청 문장"
@@ -230,9 +252,9 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
       </section>
 
       {/* 1. 작업 조건 확인·수정 */}
-      <section className="card" id="conditions">
-        <h2>1. 작업 조건 확인·수정</h2>
-        <p className="desc">직접 입력하거나, 위에서 채워진 값을 고친 뒤 다시 추천받을 수 있습니다.</p>
+      <section className="card" id="conditions" hidden={tab !== "conditions"}>
+        <h2>작업 조건 확인·수정</h2>
+        <p className="desc">직접 입력하거나, 말로 요청해 채워진 값을 고친 뒤 다시 추천받을 수 있습니다.</p>
         <form className="grid" onSubmit={(e) => { e.preventDefault(); if (!busy) runRecommend(input); }}>
           <div className="full">
             <label htmlFor="taskName">작업 이름</label>
@@ -264,9 +286,16 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
       </section>
 
       {/* 2. 추천 결과 */}
+      {tab === "result" && !result && (
+        <section className="card" id="result-empty">
+          <h2>추천 결과</h2>
+          <p className="desc">아직 결과가 없어요. 말로 요청하거나 조건을 입력하면 이곳에 결과가 나옵니다.</p>
+          <div className="row-btns"><button type="button" className="btn" onClick={() => onTab("ask")}>말로 요청하러 가기</button></div>
+        </section>
+      )}
       {result && (
-        <section className="card result" id="result">
-          <h2>2. 추천 결과</h2>
+        <section className="card result" id="result" hidden={tab !== "result"}>
+          <h2>추천 결과</h2>
           {stale && (
             <div className="stale">조건이 바뀌었어요. <button type="button" className="link" disabled={busy} onClick={() => runRecommend(input)}>다시 계산하기</button></div>
           )}
@@ -275,6 +304,13 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
           ) : (
             <>
               <p className="desc">&quot;{result.input.taskName}&quot; 조건을 만족하는 조합 중 가장 경제적인 조합입니다.</p>
+              {understood && understood.items.length > 0 && (
+                <div className="mini-understood">
+                  <b>이해한 값</b>{understood.items.map((u) => <span key={u}>{u}</span>)}
+                  {understood.defaults.length > 0 && <><b className="g">기본값</b>{understood.defaults.map((d) => <span key={d} className="g">{d}</span>)}</>}
+                  <button type="button" className="link" onClick={() => onTab("conditions")}>값 고치기</button>
+                </div>
+              )}
               <div className="print-only print-cond">
                 검토 조건: 옮기는 무게 {result.input.loadKg}kg · 이동 거리 {result.input.distanceM}m · {INSPECTION_TEXT[result.input.inspection]} ·
                 로봇팔 {result.input.pickKg > 0 ? `${result.input.pickKg}kg` : "없음"} · 대체 인원 {result.input.workers}명 · 인건비 {won(result.input.laborCost)} · 대체율 {result.input.replaceRate}%
@@ -299,6 +335,11 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult }:
                 <li>· 도입비 = 모듈 합계 {won(ok.moduleSum)} + 설치·연동비 {RULES.INTEGRATION_RATE * 100}%</li>
                 <li>· 연간 순절감 = 인건비 {result.input.workers}명 × {won(result.input.laborCost)} × 대체율 {result.input.replaceRate}% ({won(ok.laborSaving)}) − 유지보수비(도입비의 {RULES.MAINTENANCE_RATE * 100}%)</li>
               </ul>
+              <div className="quick-rate">
+                <label htmlFor="quickRate">업무 대체율 <b>{result.input.replaceRate}%</b> <small>— 낮출수록 보수적인 시나리오</small></label>
+                <input id="quickRate" className="range" type="range" min={10} max={100} step={10} value={result.input.replaceRate}
+                  onChange={(e) => quickRate(Number(e.target.value))} />
+              </div>
               <RoiChart capex={ok.capex} annualSaving={ok.annualSaving} paybackMonths={ok.paybackMonths} />
               <div className="checklist" id="checklist">
                 <h3>안전·호환성 검토 체크리스트</h3>
