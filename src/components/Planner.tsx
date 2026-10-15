@@ -180,8 +180,8 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult, t
   // 첫 화면의 '예시로 체험하기' 버튼 → 예시 문장 실행
   const onNaturalRef = useRef(onNatural);
   const onTabRef = useRef(onTab);
-  const runRecommendRef = useRef(runRecommend);
-  useEffect(() => { onNaturalRef.current = onNatural; onTabRef.current = onTab; runRecommendRef.current = runRecommend; });
+  const showResultRef = useRef(showResult);
+  useEffect(() => { onNaturalRef.current = onNatural; onTabRef.current = onTab; showResultRef.current = showResult; });
   useEffect(() => {
     const h = (e: Event) => {
       const ex = EXAMPLES[Number((e as CustomEvent).detail) || 0];
@@ -192,8 +192,12 @@ export default function Planner({ modules, onSave, saving, savedKey, onResult, t
     // 우측 기록 카드 클릭 → 저장된 조건으로 다시 계산
     const load = (e: Event) => {
       const next = { ...INITIAL, ...(e as CustomEvent<TaskInput>).detail };
+      // 이미 계산해 둔 기록 → 계산 화면 없이 바로 결과 표시
+      reqId.current++; // 진행 중인 계산이 있으면 무시
+      setAnalysis(null);
+      setUnderstood(null); // 이전 문장의 '이해한 값' 요약은 이 기록과 무관하므로 숨김
       setInput(next);
-      runRecommendRef.current(next, { label: "저장된 검토 기록 불러오기", detail: next.taskName });
+      showResultRef.current({ ...next, taskName: next.taskName.trim() || "이름 없는 작업" });
     };
     window.addEventListener("modulink:example", h);
     window.addEventListener("modulink:load", load);
