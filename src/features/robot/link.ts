@@ -90,9 +90,15 @@ export class SerialLink {
 
 /* ---------------- 실시간 중계 (MQTT over WebSocket, 공개 무료 브로커) ---------------- */
 
+// 여러 공개 브로커에 동시에 연결 → 어느 하나만 통해도 중계됨 (학교·회사망에서 특정 포트가 막혀도 버팀)
 const BROKERS = (process.env.NEXT_PUBLIC_MQTT_URL
   ? [process.env.NEXT_PUBLIC_MQTT_URL]
-  : ["wss://broker.emqx.io:8084/mqtt", "wss://broker.hivemq.com:8884/mqtt"]);
+  : [
+      "wss://broker.emqx.io:8084/mqtt",
+      "wss://broker.hivemq.com:8884/mqtt",
+      "wss://public:public@public.cloud.shiftr.io", // 443 포트
+      "wss://test.mosquitto.org:8081/mqtt",
+    ]);
 
 const topic = (code: string, kind: "state" | "cmd") => `modulink-ai/v1/${code}/${kind}`;
 
@@ -105,8 +111,9 @@ type MqttClient = {
 };
 
 export class RelayLink {
-  private client: MqttClient | null = null;
-  private brokerIdx = 0;
+  private clients: MqttClient[] = [];
+  private seq = 0;
+  private lastSeen = new Map<string, number>();
 
   async open(
     code: string,
@@ -114,53 +121,69 @@ export class RelayLink {
     handlers: { onState?: (s: RobotState) => void; onCmd?: (c: string) => void; onStatus: (s: "connecting" | "online" | "offline") => void },
   ) {
     const mqtt = (await import("mqtt")).default;
-    const tryConnect = () => {
-      const url = BROKERS[this.brokerIdx % BROKERS.length];
-      handlers.onStatus("connecting");
-      const c = mqtt.connect(url, {
-        clientId: `modulink-${role}-${Math.random().toString(16).slice(2, 10)}`,
-        connectTimeout: 6000,
-        reconnectPeriod: 2000,
-        clean: true,
-      }) as unknown as MqttClient;
-      this.client = c;
-      let everConnected = false;
-      c.on("connect", () => {
-        everConnected = true;
-        handlers.onStatus("online");
-        c.subscribe(topic(code, role === "monitor" ? "state" : "cmd"), { qos: 0 });
-      });
+    const id = Math.random().toString(16).slice(2, 10);
+    const report = () => {
+      const n = this.clients.filter((c) => c.connected).length;
+      handlers.onStatus(n > 0 ? "online" : "connecting");
+    };
+    handlers.onStatus("connecting");
+    for (const url of BROKERS) {
+      let c: MqttClient;
+      try {
+        c = mqtt.connect(url, { clientId: `modulink-${role}-${id}`, connectTimeout: 8000, reconnectPeriod: 3000, clean: true }) as unknown as MqttClient;
+      } catch { continue; }
+      this.clients.push(c);
+      c.on("connect", () => { c.subscribe(topic(code, role === "monitor" ? "state" : "cmd"), { qos: 0 }); report(); });
+      c.on("close", report);
+      c.on("offline", report);
+      c.on("error", () => {});
       c.on("message", (_t, payload) => {
         const text = String(payload);
         if (role === "monitor") {
+          // 같은 메시지가 여러 브로커로 들어오면 한 번만 처리
+          try {
+            const o = JSON.parse(text);
+            if (typeof o.q === "number" && o.src) {
+              const prev = this.lastSeen.get(o.src) ?? -1;
+              if (o.q <= prev && prev - o.q < 1000) return;
+              this.lastSeen.set(o.src, o.q);
+            }
+          } catch {}
           const s = parseState(text);
           if (s) handlers.onState?.(s);
-        } else handlers.onCmd?.(text);
-      });
-      c.on("offline", () => handlers.onStatus("offline"));
-      c.on("error", () => {
-        // 첫 브로커가 막혀 있으면 다음 브로커로 전환
-        if (!everConnected && BROKERS.length > 1) {
-          c.end(true);
-          this.brokerIdx++;
-          if (this.brokerIdx < BROKERS.length * 2) setTimeout(tryConnect, 300);
+        } else {
+          const m = /^(c_\d+):(.*)$/.exec(text);
+          const key = m ? m[1] : "";
+          const body = m ? m[2] : text;
+          if (key) {
+            const k = Number(key.split("_")[1] ?? -1);
+            const prev = this.lastSeen.get("cmd") ?? -1;
+            if (k >= 0 && k <= prev) return;
+            if (k >= 0) this.lastSeen.set("cmd", k);
+          }
+          handlers.onCmd?.(body);
         }
       });
-    };
-    tryConnect();
+    }
+  }
+
+  private pub(t: string, m: string) {
+    for (const c of this.clients) if (c.connected) c.publish(t, m, { qos: 0 });
   }
 
   publishState(code: string, s: RobotState) {
-    if (this.client?.connected) this.client.publish(topic(code, "state"), JSON.stringify(s), { qos: 0 });
+    this.pub(topic(code, "state"), JSON.stringify({ ...s, q: ++this.seq, src: this.src }));
   }
 
   publishCmd(code: string, cmd: string) {
-    if (this.client?.connected) this.client.publish(topic(code, "cmd"), cmd, { qos: 0 });
+    this.pub(topic(code, "cmd"), `c_${Date.now()}:${cmd}`);
   }
 
+  private src = Math.random().toString(36).slice(2, 8);
+
   close() {
-    try { this.client?.end(true); } catch {}
-    this.client = null;
+    for (const c of this.clients) { try { c.end(true); } catch {} }
+    this.clients = [];
   }
 }
 
