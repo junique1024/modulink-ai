@@ -71,7 +71,7 @@ interface Props {
   onTab: (t: TabId) => void;
 }
 
-export type TabId = "home" | "ask" | "conditions" | "result" | "history";
+export type TabId = "home" | "ask" | "conditions" | "result" | "robot" | "history";
 
 export default function Planner({ modules, onSave, saving, savedKey, onResult, tab, onTab }: Props) {
   const [input, setInput] = useState<TaskInput>(INITIAL);

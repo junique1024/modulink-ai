@@ -7,6 +7,7 @@ export const NAV: { id: TabId; label: string; sub: string; narrowOnly?: boolean 
   { id: "ask", label: "말로 요청", sub: "문장 한 줄 입력" },
   { id: "conditions", label: "조건 확인", sub: "값 직접 수정" },
   { id: "result", label: "추천 결과", sub: "조합 · 회수 · 안전" },
+  { id: "robot", label: "로봇 연동", sub: "실시간 상태 · 안전 경보" },
   { id: "history", label: "검토 기록", sub: "저장한 안", narrowOnly: true },
 ];
 

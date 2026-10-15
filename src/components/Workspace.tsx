@@ -7,6 +7,7 @@ import { toRecord, type RecommendationRecord } from "@/features/recommendations/
 import HistoryList from "./HistoryList";
 import Hero from "./Hero";
 import Planner, { type TabId } from "./Planner";
+import RobotPanel from "./RobotPanel";
 import Sidebar from "./Sidebar";
 
 const KEY = "modulink-ai.records.v1";
@@ -41,7 +42,7 @@ export default function Workspace({ modules, initialRecords, dbReady, catalogLab
   const [tab, setTabState] = useState<TabId>("home");
   const [freshId, setFreshId] = useState<number | null>(null);
 
-  const TABS: TabId[] = ["home", "ask", "conditions", "result", "history"];
+  const TABS: TabId[] = ["home", "ask", "conditions", "result", "robot", "history"];
   const setTab = (t: TabId) => {
     setTabState(t);
     try { window.history.replaceState(null, "", t === "home" ? location.pathname : `#${t}`); } catch {}
@@ -133,6 +134,7 @@ export default function Workspace({ modules, initialRecords, dbReady, catalogLab
           />
         )}
         <Planner modules={modules} onSave={onSave} saving={saving} savedKey={savedKey} onResult={() => setHasResult(true)} tab={tab} onTab={setTab} />
+        <RobotPanel visible={tab === "robot"} />
         {tab === "history" && <section className="card history-tab">{historyEl}</section>}
         <footer>
           ModuLink-AI 프로토타입 · 2026 기업가정신 챌린지 · 팀 신촌다이나믹스
