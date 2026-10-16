@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import { Beeper, parseState, RelayLink, type RobotState, SerialLink, serialSupported } from "@/features/robot/link";
 
 type Mode = "sender" | "monitor";
@@ -118,15 +119,32 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
   const sendCmd = (cmd: string) => void serial.current?.send(cmd);
 
   /* ---------- 모니터 (발표 PC) ---------- */
-  const startMonitor = () => {
-    if (!/^\d{4}$/.test(codeInput)) { setError("4자리 연결 코드를 입력해 주세요."); return; }
+  const startMonitor = (given?: string) => {
+    const c = given ?? codeInput;
+    if (!/^\d{4}$/.test(c)) { setError("4자리 연결 코드를 입력해 주세요."); return; }
     setError(null);
-    unlockSound();
-    setCode(codeInput);
+    if (!given) unlockSound();
+    setCode(c);
     setMode("monitor");
     relay.current = new RelayLink();
-    void relay.current.open(codeInput, "monitor", { onStatus: setRelayStatus, onState: apply });
+    void relay.current.open(c, "monitor", { onStatus: setRelayStatus, onState: apply });
   };
+  // QR로 들어온 경우(?watch=1234): 코드 입력 없이 바로 모니터 시작
+  const startMonitorRef = useRef(startMonitor);
+  useEffect(() => { startMonitorRef.current = startMonitor; });
+  useEffect(() => {
+    const w = new URLSearchParams(location.search).get("watch");
+    if (w && /^\d{4}$/.test(w)) startMonitorRef.current(w);
+  }, []);
+  // 관람객용 QR (이 코드로 바로 모니터 화면이 열림)
+  const [qr, setQr] = useState<{ url: string; svg: string } | null>(null);
+  useEffect(() => {
+    if (!code) return;
+    const url = `${location.origin}/?watch=${code}#robot`;
+    QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
+      .then((svg) => setQr({ url, svg }))
+      .catch(() => setQr(null));
+  }, [code]);
 
   const stopAll = async () => {
     await serial.current?.disconnect();
@@ -180,7 +198,7 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
                 <input inputMode="numeric" maxLength={4} placeholder="0000" value={codeInput} aria-label="연결 코드"
                   onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
                   onKeyDown={(e) => { if (e.key === "Enter") startMonitor(); }} />
-                <button type="button" className="btn" onClick={startMonitor}>모니터 시작</button>
+                <button type="button" className="btn" onClick={() => startMonitor()}>모니터 시작</button>
               </div>
             </div>
           </div>
@@ -197,7 +215,17 @@ export default function RobotPanel({ visible }: { visible: boolean }) {
               <span className={`st ${fresh ? "online" : "offline"}`}>● 신호 {fresh ? "수신 중" : "없음"}</span>
               <button type="button" className="link" onClick={stopAll}>연결 종료</button>
             </div>
-            {mode === "sender" && <p className="hint-s">발표 PC에서 [로봇 연동] → [모니터]에 코드 <b>{code}</b>를 입력하면 같은 화면을 볼 수 있어요.</p>}
+            {mode === "sender" && <p className="hint-s">발표 PC에서 [로봇 연동] → [모니터]에 코드 <b>{code}</b>를 입력하거나, 아래 QR을 찍으면 같은 화면을 볼 수 있어요.</p>}
+            {qr && (
+              <div className="robot-qr">
+                <div className="qr-img" aria-label="실시간 모니터 QR 코드" dangerouslySetInnerHTML={{ __html: qr.svg }} />
+                <div className="qr-txt">
+                  <b>휴대폰으로 함께 보기</b>
+                  <span>카메라로 QR을 찍으면 코드 입력 없이 이 로봇의 실시간 상태와 경보가 바로 열립니다.</span>
+                  <code>{qr.url.replace(/^https?:\/\//, "")}</code>
+                </div>
+              </div>
+            )}
 
             <div className="robot-grid">
               <div className="gauge">

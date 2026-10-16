@@ -51,7 +51,8 @@ export default function Workspace({ modules, initialRecords, dbReady, catalogLab
   useEffect(() => {
     const h = location.hash.slice(1) as TabId;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 주소의 #탭 이름은 마운트 후에만 읽을 수 있음
-    if (TABS.includes(h) && h !== "result") setTabState(h);
+    if (new URLSearchParams(location.search).get("watch")) setTabState("robot");
+    else if (TABS.includes(h) && h !== "result") setTabState(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [toast, setToast] = useState<string | null>(null);
